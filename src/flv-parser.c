@@ -884,10 +884,6 @@ flv_tag_t *flv_read_tag(void) {
 
     fread_4(&prev_tag_size);
 
-    printf("\n");
-    printf("-------------------------------------------------------------------------------------------------------------\n");
-    printf("Previous Tag :%u, Size : %luByte, audio tag count :%d, video tag count :%d, metedata tag count :%d\n", tag_count, (unsigned long) prev_tag_size, audio_tag_count, video_tag_count, metedata_tag_count);
-
     size_t count = 0;
     // Start reading next tag
     count = fread_1(&first_byte); 
@@ -906,8 +902,11 @@ flv_tag_t *flv_read_tag(void) {
     fread_3(&(tag->stream_id));
 
     tag_count++;
-    
-    printf("Current  Tag :%u\n",tag_count);
+
+    printf("\n");
+    printf("-------------------------------------------------------------------------------------------------------------\n");
+    printf("Previous Tag :%u, Size : %luByte, audio tag count :%d, video tag count :%d, metedata tag count :%d\n", tag_count, (unsigned long) prev_tag_size, audio_tag_count, video_tag_count, metedata_tag_count);
+    printf("Current Tag Count: %u\n",tag_count);
     
     switch (tag->tag_type) {
         case TAGTYPE_AUDIODATA:
@@ -918,8 +917,8 @@ flv_tag_t *flv_read_tag(void) {
             audio_tag_count++;
             break;
         case TAGTYPE_VIDEODATA:
-            printf("\033[31mTag type: %u - ", tag->tag_type);
-            printf("Video data\033[0m\n");
+            printf("Tag type: %u - ", tag->tag_type);
+            printf("Video data\n");
             print_general_tag_info(tag);
             tag->data = (void *) read_video_tag(tag);
             video_tag_count++;
