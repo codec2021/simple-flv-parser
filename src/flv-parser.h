@@ -13,6 +13,7 @@
 #define FLV_CODEC_ID_VP6_ALPHA     (5)
 #define FLV_CODEC_ID_SCREEN_V2     (6)
 #define FLV_CODEC_ID_AVC           (7)
+#define FLV_CODEC_ID_HEVC          (12)
 
 /* AMF data types */
 enum amf_data_types {
@@ -103,6 +104,20 @@ typedef struct avc_video_tag {
     void *data;
 } avc_video_tag_t;
 
+
+typedef struct hevc_video_tag {
+    uint8_t hevc_packet_type;   // HEVCPacketType, up to CodecID, if CodecID == 7, UI8.
+                               // 0 = HEVC sequence header
+                               // 1 = HEVC NALU
+                               // 2 = HEVC end of sequence(lower level NALU sequence ender isn't required
+                               // or supported)
+    uint32_t composition_time; // Up to CodecID, if CodecID == 7, SI24.
+                               // IF HEVCPacketType == 1, Composition time offset 
+                               // ELSE 0
+    uint32_t nalu_len;
+    void *data;
+} hevc_video_tag_t;
+
 int flv_read_header(void);
 
 flv_tag_t *flv_read_tag(void);
@@ -114,6 +129,8 @@ audio_tag_t *read_audio_tag(flv_tag_t *flv_tag);
 video_tag_t *read_video_tag(flv_tag_t *flv_tag);
 
 avc_video_tag_t *read_avc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, uint32_t data_size);
+
+hevc_video_tag_t *read_hevc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, uint32_t data_size);
 
 void read_scriptdata_tag(void);
 

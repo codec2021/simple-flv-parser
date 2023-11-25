@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
     FILE *infile = NULL;
 
     if (argc == 1) {
-        infile = stdin;
+        usage(argv[0]);
     } else {
         infile = fopen(argv[1], "rb");
         if (!infile) {
@@ -21,10 +21,9 @@ int main(int argc, char **argv) {
     }
 
     flv_parser_init(infile);
-
+    
     flv_parser_run();
     
-    // MUST CLOSE the OPEND FILE 
     fclose(infile);
 
     printf("\nFinished analyzing\n");

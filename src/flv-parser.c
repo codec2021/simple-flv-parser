@@ -45,8 +45,8 @@ const char *sound_types[] = {
 
 const char *frame_types[] = {
         "not defined by standard",
-        "keyframe (for AVC, a seekable frame)",
-        "inter frame (for AVC, a non-seekable frame)",
+        "keyframe (for AVC/HEVC, a seekable frame)",
+        "inter frame (for AVC/HEVC, a non-seekable frame)",
         "disposable inter frame (H.263 only)",
         "generated keyframe (reserved for server use only)",
         "video info/command frame"
@@ -60,7 +60,12 @@ const char *codec_ids[] = {
         "On2 VP6",
         "On2 VP6 with alpha channel",
         "Screen video version 2",
-        "AVC"
+        "AVC",
+        "Unknown",
+        "Unknown",
+        "Unknown",
+        "Unknown",
+        "HEVC"
 };
 
 const char *avc_packet_types[] = {
@@ -68,6 +73,13 @@ const char *avc_packet_types[] = {
         "AVC NALU",
         "AVC end of sequence (lower level NALU sequence ender is not required or supported)"
 };
+
+const char *hevc_packet_types[] = {
+        "HEVC sequence header",
+        "HEVC NALU",
+        "HEVC end of sequence (lower level NALU sequence ender is not required or supported)"
+};
+
 const char *metadata_properties[] = {
     "audiocodecid",         // Number Audio codec ID used in the file (see E.4.2.1 for available SoundFormat values)
     "audiodatarate",        // Number Audio bit rate in kilobits per second
@@ -93,12 +105,18 @@ const char *postfix[] = {
     "pixels",
     "bytes"
 };
+
 union ieee_754_double {
     double data;
     uint8_t b[8];
 };
 static FILE *g_infile;
 static uint32_t tag_count;
+
+static uint32_t audio_tag_count;
+static uint32_t video_tag_count;
+static uint32_t metedata_tag_count;
+
 void die(void) {
     printf("Error!\n");
     exit(-1);
@@ -322,11 +340,11 @@ video_tag_t *read_video_tag(flv_tag_t *flv_tag) {
     fread_1(&byte);
 
     tag->frame_type = flv_get_bits(byte, 4, 4);
-    tag->codec_id = flv_get_bits(byte, 0, 4);
+    tag->codec_id   = flv_get_bits(byte, 0, 4);
 
     printf("  Video tag:\n");
     printf("    Frame type: %u - %s\n", tag->frame_type, frame_types[tag->frame_type]);
-    printf("    Codec ID: %u - %s\n", tag->codec_id, codec_ids[tag->codec_id]);
+    printf("    Codec ID  : %u - %s\n", tag->codec_id, codec_ids[tag->codec_id]);
     
     // Video frame payload 
     // IF CodecID == 2 
@@ -346,6 +364,10 @@ video_tag_t *read_video_tag(flv_tag_t *flv_tag) {
         // AVCVIDEOPACKET
         if (tag->codec_id == FLV_CODEC_ID_AVC) {
             tag->data = read_avc_video_tag(tag, flv_tag, (uint32_t) (flv_tag->data_size - 1));
+        }
+        else if (tag->codec_id == FLV_CODEC_ID_HEVC)
+        {
+            tag->data = read_hevc_video_tag(tag, flv_tag, (uint32_t) (flv_tag->data_size - 1));
         }
         // Other Packets, TO_DO
         else
@@ -404,6 +426,7 @@ void init_avc_video_tag(avc_video_tag_t * tag)
     tag->nalu_len = 0;
     tag->data = NULL; 
 }
+
 /*
  * @brief read AVC video tag
  */
@@ -434,13 +457,13 @@ avc_video_tag_t *read_avc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, 
 
     printf("    AVC video tag:\n");
     printf("      AVC packet type: %u - %s\n", tag->avc_packet_type, avc_packet_types[tag->avc_packet_type]);
-    printf("      AVC composition time: %i\n", tag->composition_time);
+    printf("      AVC composition time: %i(PTS-DTS)\n", tag->composition_time);
     // 0 = AVC sequence header
     // 1 = AVC NALU
     // 2 = AVC end of sequence (lower level NALU sequence ender is not required or supported)
     if (tag->avc_packet_type == 1)
     {
-        printf("      AVC nalu length: %i\n", tag->nalu_len);
+        printf("      AVC nalu length: %i Byte\n", tag->nalu_len);
         tag->data = malloc((size_t) data_size - 1 - 3 - 4);
         if (tag->data == NULL)
         {
@@ -451,6 +474,19 @@ avc_video_tag_t *read_avc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, 
         size_t count = 0;
         count = fread(tag->data, 1, (size_t) data_size - 1 - 3 - 4, g_infile);
         if(check_read_error(__LINE__, __FUNCTION__, count, data_size - 8))
+        {
+            free(tag->data);
+            free(tag);
+            return NULL;
+        }
+    }
+    else if (tag->avc_packet_type == 0)
+    {
+        tag->data = malloc((size_t) data_size - 1 - 3);
+        size_t count = 0;
+        count = fread(tag->data, 1, (size_t) data_size - 1 - 3, g_infile);
+
+        if(check_read_error(__LINE__, __FUNCTION__, count, data_size - 4))
         {
             free(tag->data);
             free(tag);
@@ -471,6 +507,99 @@ avc_video_tag_t *read_avc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, 
     }
     return tag;
 }
+
+void init_hevc_video_tag(hevc_video_tag_t * tag)
+{
+    assert(tag != NULL);
+    tag->hevc_packet_type = 0;
+    tag->composition_time = 0;
+    tag->nalu_len = 0;
+    tag->data = NULL; 
+}
+
+/*
+ * @brief read HEVC video tag
+ */
+hevc_video_tag_t *read_hevc_video_tag(video_tag_t *video_tag, flv_tag_t *flv_tag, uint32_t data_size) {
+    hevc_video_tag_t *tag = NULL;
+
+    tag = malloc(sizeof(hevc_video_tag_t));
+    if (tag == NULL)
+    {
+        printf("line: %d, malloc error in function %s\n", __LINE__, __FUNCTION__);
+        return NULL;
+    } 
+
+    init_hevc_video_tag(tag);
+
+    // HEVC PacketType:UI8
+    fread_1(&(tag->hevc_packet_type));
+    // CompositionTime:SI24
+    fread_3(&(tag->composition_time));
+
+    // if HEVCPacketType == 1, one or more NALUS
+    // 0x17|01|00 00 00|xx xx xx xx|
+    //0: sequence header 1:nalu 2:end of sequence
+    if (tag->hevc_packet_type == 1) 
+    {
+        // 4-byte, the actual length of the raw data(NALU)
+        fread_4(&(tag->nalu_len));
+    }
+
+    printf("    HEVC video tag:\n");
+    printf("      HEVC packet type: %u - %s\n", tag->hevc_packet_type, hevc_packet_types[tag->hevc_packet_type]);
+    printf("      HEVC composition time(PTS-DTS): %i\n", tag->composition_time);
+    // 0 = HEVC sequence header
+    // 1 = HEVC NALU
+    // 2 = HEVC end of sequence (lower level NALU sequence ender is not required or supported)
+    if (tag->hevc_packet_type == 1)
+    {
+        printf("      HEVC nalu length: %i Byte\n", tag->nalu_len);
+        tag->data = malloc((size_t) data_size - 1 - 3 - 4);
+        if (tag->data == NULL)
+        {
+           printf("line: %d, malloc error in function %s\n", __LINE__, __FUNCTION__);
+           free(tag);
+           return NULL; 
+        }
+        size_t count = 0;
+        count = fread(tag->data, 1, (size_t) data_size - 1 - 3 - 4, g_infile);
+        if(check_read_error(__LINE__, __FUNCTION__, count, data_size - 8))
+        {
+            free(tag->data);
+            free(tag);
+            return NULL;
+        }
+    }
+    else if (tag->hevc_packet_type == 0)
+    {
+        tag->data = malloc((size_t) data_size - 1 - 3);
+        size_t count = 0;
+        count = fread(tag->data, 1, (size_t) data_size - 1 - 3, g_infile);
+
+        printf("\n");
+        if(check_read_error(__LINE__, __FUNCTION__, count, data_size - 4))
+        {
+            free(tag->data);
+            free(tag);
+            return NULL;
+        }
+    }
+    else
+    {
+        tag->data = malloc((size_t) data_size - 1 - 3);
+        size_t count = 0;
+        count = fread(tag->data, 1, (size_t) data_size - 1 - 3, g_infile);
+        if(check_read_error(__LINE__, __FUNCTION__, count, data_size - 4))
+        {
+            free(tag->data);
+            free(tag);
+            return NULL;
+        }
+    }
+    return tag;
+}
+
 const char * check_property_name(const char *name)
 {
     assert( NULL != name);
@@ -491,6 +620,8 @@ const char * check_property_name(const char *name)
        return postfix[5];
      return NULL; 
 }
+
+
 void read_scriptdata_tag(void)
 {
     // type: 0x02, length: 0x000A, "onMetaData"
@@ -545,9 +676,9 @@ void read_scriptdata_tag(void)
                     double data1 = 0.0;
                     fread_double(&data1);
                     if (check_property_name(property_name) != NULL)
-                         printf("    Property: %s - value: %.12g %s\n", property_name, data1, check_property_name(property_name));
+                         printf("    Property: %35s - value: %.12g %s\n", property_name, data1, check_property_name(property_name));
                     else
-                         printf("    Property: %s - value: %.12g\n", property_name, data1);
+                         printf("    Property: %35s - value: %.12g\n", property_name, data1);
                 }
                break;
             // Boolean: UI8
@@ -555,7 +686,7 @@ void read_scriptdata_tag(void)
                 {
                     uint8_t value = 0;
                     fread_1(&value);
-                    printf("    Property: %s - value: %u\n", property_name, value);
+                    printf("    Property: %35s - value: %u\n", property_name, value);
                 }
                break;
             // ScriptDataString 
@@ -580,7 +711,7 @@ void read_scriptdata_tag(void)
                         printf("line: %d, read error in function %s", __LINE__, __FUNCTION__);
                         return; 
                     }
-                    printf("    Property: %s - value: %s", property_name, property_data_str);
+                    printf("    Property: %35s - value: %s\n", property_name, property_data_str);
                     free(property_data_str);
                     property_data_str = NULL;
                 }
@@ -603,6 +734,9 @@ void read_scriptdata_tag(void)
 void flv_parser_init(FILE *in_file) {
     g_infile = in_file;
     tag_count = 0;
+    audio_tag_count = 0;
+    video_tag_count = 0;
+    metedata_tag_count = 0;
 }
 // main processing func
 int flv_parser_run() {
@@ -632,7 +766,16 @@ void flv_free_tag(flv_tag_t *tag) {
             free(video_tag->data);
             free(tag->data);
             free(tag);
-        } else {
+        } 
+        else if (video_tag->codec_id == FLV_CODEC_ID_HEVC) {
+            hevc_video_tag_t *hevc_video_tag;
+            hevc_video_tag = (hevc_video_tag_t *) video_tag->data;
+            free(hevc_video_tag->data);
+            free(video_tag->data);
+            free(tag->data);
+            free(tag);
+        } 
+        else {
             free(video_tag->data);
             free(tag->data);
             free(tag);
@@ -698,8 +841,8 @@ int flv_read_header(void) {
 
 void print_general_tag_info(flv_tag_t *tag) {
     assert(NULL != tag);
-    printf("  Data size: %lu\n", (unsigned long) tag->data_size);
-    printf("  Timestamp: %lu\n", (unsigned long) tag->timestamp);
+    printf("  Data size: %lu Byte\n", (unsigned long) tag->data_size);
+    printf("  Timestamp: %lu(DTS)\n", (unsigned long) tag->timestamp);
     printf("  Timestamp extended: %u\n", tag->timestamp_ext);
     printf("  StreamID: %lu\n", (unsigned long) tag->stream_id);
 
@@ -742,7 +885,8 @@ flv_tag_t *flv_read_tag(void) {
     fread_4(&prev_tag_size);
 
     printf("\n");
-    printf("PreviousTagSize%u: %lu\n", tag_count, (unsigned long) prev_tag_size);
+    printf("-------------------------------------------------------------------------------------------------------------\n");
+    printf("Previous Tag :%u, Size : %luByte, audio tag count :%d, video tag count :%d, metedata tag count :%d\n", tag_count, (unsigned long) prev_tag_size, audio_tag_count, video_tag_count, metedata_tag_count);
 
     size_t count = 0;
     // Start reading next tag
@@ -763,23 +907,30 @@ flv_tag_t *flv_read_tag(void) {
 
     tag_count++;
     
-    printf("Tag%u\n",tag_count);
-    printf("Tag type: %u - ", tag->tag_type);
+    printf("Current  Tag :%u\n",tag_count);
+    
     switch (tag->tag_type) {
         case TAGTYPE_AUDIODATA:
+            printf("Tag type: %u - ", tag->tag_type);
             printf("Audio data\n");
             print_general_tag_info(tag);
             tag->data = (void *) read_audio_tag(tag);
+            audio_tag_count++;
             break;
         case TAGTYPE_VIDEODATA:
-            printf("Video data\n");
+            printf("\033[31mTag type: %u - ", tag->tag_type);
+            printf("Video data\033[0m\n");
             print_general_tag_info(tag);
             tag->data = (void *) read_video_tag(tag);
+            video_tag_count++;
             break;
         case TAGTYPE_SCRIPTDATAOBJECT:
+            printf("Tag type: %u - ", tag->tag_type);
             printf("Script data object\n");
-            print_general_tag_info(tag);                     // Parse the metadata info  
+            print_general_tag_info(tag);                     
+            // Parse the metadata info  
             read_scriptdata_tag();
+            metedata_tag_count++;
             break;
         default:
             printf("Unknown tag type!\n");
