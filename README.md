@@ -5,5 +5,13 @@ All the flv files to test are located in the folder "res", and all the source co
 # How to compile?
 Execute the "start_build.sh", then go to the folder "build", execute "make" command, then you can get one executable file named "flv_parser".
 
+or  
+
+mkdir build  
+cd build  
+cmake ../  
+make
+
+
 # How to use the flv_parser?
 ./flv_parser ../res/sample1.flv 
