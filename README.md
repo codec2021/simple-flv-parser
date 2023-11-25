@@ -17,3 +17,6 @@ make
 
 # How to use the flv_parser?
 ./flv_parser ../res/h264.flv 
+
+# flv format  
+https://rtmp.veriskope.com/pdf/video_file_format_spec_v10.pdf
