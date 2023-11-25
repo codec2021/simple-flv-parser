@@ -14,4 +14,4 @@ make
 
 
 # How to use the flv_parser?
-./flv_parser ../res/sample1.flv 
+./flv_parser ../res/h264.flv 
