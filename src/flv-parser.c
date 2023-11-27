@@ -893,6 +893,10 @@ flv_tag_t *flv_read_tag(void) {
         return NULL;
     }
     
+    printf("\n");
+    printf("-------------------------------------------------------------------------------------------------------------\n");
+    printf("Previous Tag :%u, Size : %luByte, audio tag count :%d, video tag count :%d, metedata tag count :%d\n", tag_count, (unsigned long) prev_tag_size, audio_tag_count, video_tag_count, metedata_tag_count);
+    
     tag->filter = (first_byte & (1 << 4)); // Filter == 1, other process need to add 
     tag->tag_type = (first_byte & 0x1F);   
     // count = fread_1(&(tag->tag_type));
@@ -903,9 +907,6 @@ flv_tag_t *flv_read_tag(void) {
 
     tag_count++;
 
-    printf("\n");
-    printf("-------------------------------------------------------------------------------------------------------------\n");
-    printf("Previous Tag :%u, Size : %luByte, audio tag count :%d, video tag count :%d, metedata tag count :%d\n", tag_count, (unsigned long) prev_tag_size, audio_tag_count, video_tag_count, metedata_tag_count);
     printf("Current Tag Count: %u\n",tag_count);
     
     switch (tag->tag_type) {
